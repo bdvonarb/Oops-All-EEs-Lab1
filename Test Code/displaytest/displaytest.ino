@@ -15,7 +15,7 @@
 
 uint16_t dispData[4] = {dig1form, dig2form, dig3form, dig4form};
 
-bool dispOn = true;
+bool dispOn = false;
 
 uint16_t time = 0;
 

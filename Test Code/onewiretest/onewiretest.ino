@@ -1,7 +1,4 @@
-#include <arduino.h>
-#ifndef __AVR_ATmega328P__
-    #include <avr/iom328p.h> //meant to be run on arduino UNO may require modification (only to timer stuff) to work on ESP8266
-#endif
+#include <Arduino.h>
 
 #define ARDUINO 100
 
@@ -11,7 +8,7 @@
 #include "../../Libraries/OneWire-2.3.5/OneWire.h"
 #endif
 
-OneWire  ds(10);  // on pin 10
+OneWire  ds(0);  // on pin 10
 
 void setup(void) {
   Serial.begin(9600);

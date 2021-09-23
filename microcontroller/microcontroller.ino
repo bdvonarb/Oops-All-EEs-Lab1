@@ -13,6 +13,7 @@
 #include <WiFiClientSecureBearSSL.h> //for doing captive portal login with https
 #include <OneWire.h> //for communicating with temperature sensor
 #include <Ticker.h> //for hardware timer to trigger temp conversions every second
+#include <ESP8266Firebase.h> //for accessing our backend database
 
 #include "password.h" //password file contains passwords for SMTP as well as API keys MAKE SURE THIS DOES NOT GET COMMITED TO GIT
 
@@ -37,7 +38,21 @@
 //define pin for temperature probe
 #define TEMP_PROBE D3
 
-const int8_t tempdatapowers[] = {0,0,0,0,0,6,5,4,3,2,1,0,-1,-2,-3,-4};
+//define bit locations for decimal point and display on
+#define D_ON 0x0008
+#define DP 0x0100
+
+const int8_t tempdatapowers[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0};
+
+//bit format for each digit
+const uint16_t digForm[4] = {0x0080, 0x0040, 0x0020, 0x0010};
+
+//stores bits to be sent to display
+uint16_t dispData[4] = {0,0,0,0};
+
+bool dispOn = false;
+
+char disp[6] = "--.--";
 
 byte addr[8];
 
@@ -47,12 +62,30 @@ SMTPSession smtp;
 
 OneWire tempProbe;
 
+Firebase firebase(FIREBASE_PROJECTID);
+
 bool captiveLogin();
 
 //we can send text messages via SMTP by sending emials to <phonenumber>@vtext.com
 void sendSMS(String phonenumber, String messageText);
 
+//callback for hardware timer to initiate temperature conversion every second
 void ICACHE_RAM_ATTR eachSecond();
+
+//sends display data to display
+void refreshDisplay();
+
+//sends actual bits to display
+void writeToReg(uint16_t trans);
+
+//sets up dispData array with bits needed to display the string
+void display(char disp[]);
+
+//converts a char into a byte containing the segments needed to display it
+uint8_t segMap(char digit);
+
+//computes exponent, can handle negative exponents
+float power(uint8_t base, int8_t exponent);
 
 void setup() {
     Serial.begin(115200); //start serial at 115200 baud for debug information on USB
@@ -84,6 +117,7 @@ void setup() {
 
     if(!captiveLogin()) {
         Serial.println("Captive portal login failed, program aborting");
+        return;
     }
 
     Serial.println("Internet Access Achieved!");
@@ -97,10 +131,100 @@ void setup() {
         Serial.println("Temp probe not found");
         return;
     }
+
 }
 
 void loop() {
+    refreshDisplay();
+}
 
+void display(char disp[]) {
+    uint8_t indexOfDP = strchr(disp, '.') - disp;
+    for(uint8_t i = 0; i < 4; i++) {
+        dispData[i] = digForm[i] | (segMap(disp[i + (i >= indexOfDP)], (i + 1) == indexOfDP ) << 8);
+    }
+}
+
+uint8_t segMap(char digit, bool dp) {
+    uint8_t map = 0;
+    switch(digit) {
+        case '0':
+            map = 0b11111100;
+            break;
+        case '1':
+            map = 0b01100000;
+            break;
+        case '2':
+            map = 0b11011010;
+            break;
+        case '3':
+            map = 0b11110010;
+            break;
+        case '4':
+            map = 0b01100110;
+            break;
+        case '5':
+            map = 0b10110110;
+            break;
+        case '6':
+            map = 0b10111110;
+            break;
+        case '7':
+            map = 0b11100000;
+            break;
+        case '8':
+            map = 0b11111110;
+            break;
+        case '9':
+            map = 0b11110110;
+            break;
+        case 'A': //A
+            map = 0b11101110;
+            break;
+        case 'b': //b
+            map = 0b00111110;
+            break;
+        case 'c': //c
+            map = 0b00011010;
+            break;
+        case 'd': //d
+            map = 0b01111010;
+            break;
+        case 'E': //E
+            map = 0b10011110;
+            break;
+        case 'F': //F
+            map = 0b10001110;
+            break;
+        case 'r': //r
+            map = 0b00001010;
+            break;
+        case 'H': //H
+            map = 0b01101110;
+            break;
+        case 'L': //L
+            map = 0b00011100;
+            break;
+        case 'o': //o
+            map = 0b00111010;
+            break;
+    }
+    return map | dp;
+}
+
+void refreshDisplay() {
+    writeToReg(dispData[0]);
+    writeToReg(dispData[1]);
+    writeToReg(dispData[2]);
+    writeToReg(dispData[3]);
+}
+
+void writeToReg(uint16_t trans) {
+    shiftOut(SER,Sclk,LSBFIRST, lowByte(trans) | (D_ON * dispOn));
+    shiftOut(SER,Sclk,LSBFIRST, highByte(trans));
+    digitalWrite(Rclk, HIGH);
+    delayMicroseconds(100);
+    digitalWrite(Rclk, LOW);
 }
 
 void ICACHE_RAM_ATTR eachSecond() {
@@ -117,9 +241,16 @@ void ICACHE_RAM_ATTR eachSecond() {
         } else {
             Serial.print(data[i], HEX);
         }
+        Serial.print(" ");
     }
     Serial.println("");
     uint16_t tempBytes = data[1] << 8 | data[0];
+    Serial.println(tempBytes, BIN);
+
+    //start new conversion for next time
+    tempProbe.reset();
+    tempProbe.select(addr);
+    tempProbe.write(0x44); //start conversion
 
     float temp = 0;
 
@@ -135,17 +266,17 @@ void ICACHE_RAM_ATTR eachSecond() {
 
     temp *= (-2 * ((data[1] >> 7) & 0x01)) + 1;
 
+    sprintf(disp, "%5.1f", temp);
+    display(disp);
+
     Serial.print("Temp: ");
     Serial.println(temp);
 
-    //start new conversion for next time
-    tempProbe.reset();
-    tempProbe.select(addr);
-    tempProbe.write(0x44); //start conversion
+    firebase.setFloat("temp", temp);
 }
 
 float power(uint8_t base, int8_t exponent) {
-	float result = 1; //init at 1 becase anything to the 0 power is 1
+	float result = 1.0; //init at 1 becase anything to the 0 power is 1
 	for (int i = 0; i < abs(exponent); i++) {
 		result *= base;
 	}
@@ -248,25 +379,41 @@ bool captiveLogin() {
     }
     String cookie = http.header(SET_COOKIE);
     /* 
-              .---. .---. 
-             :     : o   :    me want cookie!
-         _..-:   o :     :-.._    /
-     .-''  '  `---' `---' "   ``-.    
-   .'   "   '  "  .    "  . '  "  `.  
-  :   '.---.,,.,...,.,.,.,..---.  ' ;
-  `. " `.                     .' " .'
-   `.  '`.                   .' ' .'
-    `.    `-._           _.-' "  .'  .----.
-      `. "    '"--...--"'  . ' .'  .'  o   `.
-      .'`-._'    " .     " _.-'`. :       o  :
-jgs .'      ```--.....--'''    ' `:_ o       :
-  .'    "     '         "     "   ; `.;";";";'
- ;         '       "       '     . ; .' ; ; ;
-;     '         '       '   "    .'      .-'
-'  "     "   '      "           "    _.-'
+                  .---. .---. 
+                 :     : o   :    me want cookie!
+             _..-:   o :     :-.._    /
+         .-''  '  `---' `---' "   ``-.    
+       .'   "   '  "  .    "  . '  "  `.  
+      :   '.---.,,.,...,.,.,.,..---.  ' ;
+      `. " `.                     .' " .'
+       `.  '`.                   .' ' .'
+        `.    `-._           _.-' "  .'  .----.
+          `. "    '"--...--"'  . ' .'  .'  o   `.
+          .'`-._'    " .     " _.-'`. :       o  :
+    jgs .'      ```--.....--'''    ' `:_ o       :
+      .'    "     '         "     "   ; `.;";";";'
+     ;         '       "       '     . ; .' ; ; ;
+    ;     '         '       '   "    .'      .-'
+    '  "     "   '      "           "    _.-'
     */
     Serial.print("cookie: ");
     Serial.println(cookie);
+    http.end();
+
+    //now we post a form to the login portal
+    uri = uri.substring(0,uri.indexOf("?"))+"?_browser=1";
+    http.begin(*sclient, uri);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded");
+    http.addHeader("Cookie", cookie);
+    http.collectHeaders(HEADER_NAMES, 2);
+
+    String postcode = uri.substring(uri.indexOf("?"),uri.length());
+    postcode += "&no_login=&static_u=&no_u=&no_p=&user=ui_guestuser&password=&visitor_accept_terms=1";
+    httpCode = http.POST(postcode);
+    Serial.print("response from: ");
+    Serial.println(uri);
+    Serial.print("code: ");
+    Serial.println(httpCode);
     http.end();
 
     //now technically with that last request we would have agreed to a TOS and clicked a login button, but under the hood that just hits

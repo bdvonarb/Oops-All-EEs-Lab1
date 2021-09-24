@@ -62,8 +62,6 @@ SMTPSession smtp;
 
 OneWire tempProbe;
 
-Firebase firebase(FIREBASE_PROJECTID);
-
 bool captiveLogin();
 
 //we can send text messages via SMTP by sending emials to <phonenumber>@vtext.com
@@ -124,13 +122,34 @@ void setup() {
     
     //setup timer intrrupt for measuring temperature every second
     timer1_attachInterrupt(eachSecond);
-    timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
-    timer1_write(5000000);
+    //timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
+    //timer1_write(5000000);
+
+
 
     if(!tempProbe.search(addr)) { //search for temp probe, if it's not there then return
         Serial.println("Temp probe not found");
         return;
     }
+
+    std::unique_ptr<BearSSL::WiFiClientSecure>sclient(new BearSSL::WiFiClientSecure);
+
+    sclient->setInsecure(); //except we don't actually care about security so we just fake it
+
+    HTTPClient http;
+
+    String uri = "https://api.thingspeak.com/update";
+    http.begin(*sclient, uri);
+    http.addHeader("Content-Type", "application/x-www-form-urlencoded"); //we need to give this content type header so it accepts our form
+    String postcode = "api_key=";
+    postcode += THINGSPEAK_API_WRITEKEY;
+    postcode += "&Temperature=12";
+    httpCode = http.POST(postcode);
+    Serial.print("response from: ");
+    Serial.println(uri);
+    Serial.print("code: ");
+    Serial.println(httpCode);
+    http.end();
 
 }
 
@@ -271,8 +290,6 @@ void ICACHE_RAM_ATTR eachSecond() {
 
     Serial.print("Temp: ");
     Serial.println(temp);
-
-    firebase.setFloat("temp", temp);
 }
 
 float power(uint8_t base, int8_t exponent) {

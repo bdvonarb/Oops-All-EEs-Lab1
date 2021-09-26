@@ -13,7 +13,8 @@
 #include <WiFiClientSecureBearSSL.h> //for doing captive portal login with https
 #include <OneWire.h> //for communicating with temperature sensor
 #include <Ticker.h> //for hardware timer to trigger temp conversions every second
-#include <ESP8266Firebase.h> //for accessing our backend database
+#include <AsyncHttpClient.h>
+#include <AsyncMqttClient.h>
 
 #include "password.h" //password file contains passwords for SMTP as well as API keys MAKE SURE THIS DOES NOT GET COMMITED TO GIT
 
@@ -38,6 +39,10 @@
 //define pin for temperature probe
 #define TEMP_PROBE D3
 
+//define topicstrings for mqtt
+#define FIELD2_SUBSCRIBE ("channels/" THINGSPEAK_CHANNEL_ID "/subscribe/fields/field2")
+#define FIELD1_PUBLISH ("channels/" THINGSPEAK_CHANNEL_ID "/publish/fields/field1")
+
 //define bit locations for decimal point and display on
 #define D_ON 0x0008
 #define DP 0x0100
@@ -58,9 +63,33 @@ byte addr[8];
 
 WiFiManager wifimanager;
 
+//some of these sites use https for which we need a secure client
+std::unique_ptr<BearSSL::WiFiClientSecure>sclient(new BearSSL::WiFiClientSecure);
+
+AsyncHttpClient ahttp;
+
+AsyncMqttClient mqtt;
+
+HTTPClient http;
+
 SMTPSession smtp;
 
 OneWire tempProbe;
+
+bool mqttConnected = false;
+
+void onConnected(bool sessionPresent) {
+    mqttConnected = true;
+    Serial.println("MQTT connected");
+    mqtt.subscribe(FIELD2_SUBSCRIBE, 0); //field 2 is display on/off
+}
+
+void onDisconnected(AsyncMqttClientDisconnectReason reason) {
+    mqttConnected = false;
+    Serial.print("MQTT disconnected: ");
+    Serial.println((uint8_t)reason);
+    mqtt.unsubscribe(FIELD2_SUBSCRIBE);
+}
 
 bool captiveLogin();
 
@@ -84,6 +113,9 @@ uint8_t segMap(char digit);
 
 //computes exponent, can handle negative exponents
 float power(uint8_t base, int8_t exponent);
+
+//sends temp data to thingspeak
+int postTempData(String temp);
 
 void setup() {
     Serial.begin(115200); //start serial at 115200 baud for debug information on USB
@@ -113,48 +145,54 @@ void setup() {
     //      intervention, basically what we need to do is hit a top sneaky login server on the university network with a login request
     //      before it will give us access to the internet, the following function does just that
 
+    sclient->setInsecure(); //we don't actually care about security so we just fake it
+
     if(!captiveLogin()) {
         Serial.println("Captive portal login failed, program aborting");
         return;
     }
 
     Serial.println("Internet Access Achieved!");
+
+    //setup mqtt connection to backend
+    mqtt = AsyncMqttClient();
+    mqtt.setClientId(SECRET_MQTT_CLIENT_ID);
+    mqtt.setCredentials(SECRET_MQTT_USERNAME, SECRET_MQTT_PASSWORD);
+    mqtt.setServer("mqtt://mqtt3.thingspeak.com", 1883);
+    mqtt.onConnect(onConnected);
+    mqtt.onDisconnect(onDisconnected);
+
+    mqtt.connect();
+
+
     
     //setup timer intrrupt for measuring temperature every second
     timer1_attachInterrupt(eachSecond);
-    //timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
-    //timer1_write(5000000);
-
-
+    timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
+    timer1_write(15000000);
+    
 
     if(!tempProbe.search(addr)) { //search for temp probe, if it's not there then return
         Serial.println("Temp probe not found");
         return;
     }
 
-    std::unique_ptr<BearSSL::WiFiClientSecure>sclient(new BearSSL::WiFiClientSecure);
-
-    sclient->setInsecure(); //except we don't actually care about security so we just fake it
-
-    HTTPClient http;
-
-    String uri = "https://api.thingspeak.com/update";
-    http.begin(*sclient, uri);
-    http.addHeader("Content-Type", "application/x-www-form-urlencoded"); //we need to give this content type header so it accepts our form
-    String postcode = "api_key=";
-    postcode += THINGSPEAK_API_WRITEKEY;
-    postcode += "&Temperature=12";
-    httpCode = http.POST(postcode);
-    Serial.print("response from: ");
-    Serial.println(uri);
-    Serial.print("code: ");
-    Serial.println(httpCode);
-    http.end();
-
 }
 
 void loop() {
     refreshDisplay();
+}
+
+int postTempData(String temp) {
+    /*String postcode = "api_key=" THINGSPEAK_API_WRITEKEY "&field1=";
+    temp.trim();
+    postcode += temp;
+    ahttp.init("POST", "http://api.thingspeak.com/update", "application/x-www-form-urlencoded", postcode);
+    ahttp.send();*/
+
+    mqtt.publish(FIELD1_PUBLISH, 0, false, temp.c_str(), temp.length());
+
+    return 1;
 }
 
 void display(char disp[]) {
@@ -288,6 +326,12 @@ void ICACHE_RAM_ATTR eachSecond() {
     sprintf(disp, "%5.1f", temp);
     display(disp);
 
+    if(mqttConnected) {
+        postTempData(String(disp));
+    } else {
+        Serial.println("MQTT not connected");
+    }
+
     Serial.print("Temp: ");
     Serial.println(temp);
 }
@@ -348,15 +392,7 @@ bool captiveLogin() {
 
     Serial.println("Attempting captive login");
 
-    //some of these sites use https for which we need a secure client
-    std::unique_ptr<BearSSL::WiFiClientSecure>sclient(new BearSSL::WiFiClientSecure);
-
-    sclient->setInsecure(); //except we don't actually care about security so we just fake it
-
     WiFiClient client;
-
-    HTTPClient http;
-
 
     //the first thing we do is hit captive.apple.com which will redirect us to the login portal, or if we can already access the
     //  internet it will give us a 200 and we can stop this madness

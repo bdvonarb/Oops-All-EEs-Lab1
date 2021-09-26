@@ -11,10 +11,10 @@
 #include <ESP_Mail_Client.h> //for sending SMS
 #include <ESP8266HTTPClient.h> //for doing capitve portal login
 #include <WiFiClientSecureBearSSL.h> //for doing captive portal login with https
+#define ARDUINO 100 //this is so OneWire includes the right file
 #include <OneWire.h> //for communicating with temperature sensor
 #include <Ticker.h> //for hardware timer to trigger temp conversions every second
-#include <AsyncHttpClient.h>
-#include <AsyncMqttClient.h>
+#include <asyncHTTPrequest.h>
 
 #include "password.h" //password file contains passwords for SMTP as well as API keys MAKE SURE THIS DOES NOT GET COMMITED TO GIT
 
@@ -66,9 +66,7 @@ WiFiManager wifimanager;
 //some of these sites use https for which we need a secure client
 std::unique_ptr<BearSSL::WiFiClientSecure>sclient(new BearSSL::WiFiClientSecure);
 
-AsyncHttpClient ahttp;
-
-AsyncMqttClient mqtt;
+asyncHTTPrequest ahttp;
 
 HTTPClient http;
 
@@ -76,19 +74,10 @@ SMTPSession smtp;
 
 OneWire tempProbe;
 
-bool mqttConnected = false;
-
-void onConnected(bool sessionPresent) {
-    mqttConnected = true;
-    Serial.println("MQTT connected");
-    mqtt.subscribe(FIELD2_SUBSCRIBE, 0); //field 2 is display on/off
-}
-
-void onDisconnected(AsyncMqttClientDisconnectReason reason) {
-    mqttConnected = false;
-    Serial.print("MQTT disconnected: ");
-    Serial.println((uint8_t)reason);
-    mqtt.unsubscribe(FIELD2_SUBSCRIBE);
+void responseReceived(void* optParm, asyncHTTPrequest* request, int readyState) {
+    Serial.print("HTTP response received: ");
+    Serial.println(request->responseHTTPcode());
+    Serial.println(request->responseText());
 }
 
 bool captiveLogin();
@@ -115,7 +104,10 @@ uint8_t segMap(char digit);
 float power(uint8_t base, int8_t exponent);
 
 //sends temp data to thingspeak
-int postTempData(String temp);
+void postTempData(String temp);
+
+//check for display on field in thingspeak
+void getDispOn();
 
 void setup() {
     Serial.begin(115200); //start serial at 115200 baud for debug information on USB
@@ -153,18 +145,6 @@ void setup() {
     }
 
     Serial.println("Internet Access Achieved!");
-
-    //setup mqtt connection to backend
-    mqtt = AsyncMqttClient();
-    mqtt.setClientId(SECRET_MQTT_CLIENT_ID);
-    mqtt.setCredentials(SECRET_MQTT_USERNAME, SECRET_MQTT_PASSWORD);
-    mqtt.setServer("mqtt://mqtt3.thingspeak.com", 1883);
-    mqtt.onConnect(onConnected);
-    mqtt.onDisconnect(onDisconnected);
-
-    mqtt.connect();
-
-
     
     //setup timer intrrupt for measuring temperature every second
     timer1_attachInterrupt(eachSecond);
@@ -183,16 +163,19 @@ void loop() {
     refreshDisplay();
 }
 
-int postTempData(String temp) {
-    /*String postcode = "api_key=" THINGSPEAK_API_WRITEKEY "&field1=";
+void postTempData(String temp) {
+    String postcode = "api_key=" THINGSPEAK_API_WRITEKEY "&field1=";
     temp.trim();
     postcode += temp;
-    ahttp.init("POST", "http://api.thingspeak.com/update", "application/x-www-form-urlencoded", postcode);
-    ahttp.send();*/
 
-    mqtt.publish(FIELD1_PUBLISH, 0, false, temp.c_str(), temp.length());
+    ahttp.open("POST","http://api.thingspeak.com/update");
+    ahttp.setReqHeader("Content-Type", "application/x-www-form-urlencoded");
+    ahttp.send(postcode);
+}
 
-    return 1;
+void getDispOn() {
+    ahttp.open("GET","https://api.thingspeak.com/channels/" THINGSPEAK_CHANNEL_ID "/fields/2/last?api_key=" THINGSPEAK_API_READKEY);
+    ahttp.send();
 }
 
 void display(char disp[]) {
@@ -325,12 +308,8 @@ void ICACHE_RAM_ATTR eachSecond() {
 
     sprintf(disp, "%5.1f", temp);
     display(disp);
-
-    if(mqttConnected) {
-        postTempData(String(disp));
-    } else {
-        Serial.println("MQTT not connected");
-    }
+    
+    postTempData(String(disp));
 
     Serial.print("Temp: ");
     Serial.println(temp);

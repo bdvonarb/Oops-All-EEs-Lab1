@@ -1,4 +1,5 @@
-from password import THINGSPEAK_API_READKEY, THINGSPEAK_CHANNELID
+from _typeshed import NoneType
+from password import THINGSPEAK_API_READKEY, THINGSPEAK_CHANNELID, THINGSPEAK_API_WRITEKEY
 import tkinter as tk
 import numpy as np
 import matplotlib.figure as fi
@@ -17,9 +18,12 @@ from tkinter import *
 from tkinter.ttk import *
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
-
+dispon=0
 def trigger_remote():
-    print("HI!")
+    global dispon
+    r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field2': str(dispon)})
+    print(r1.json())
+    dispon ^= 1
     return
 
 def update():
@@ -38,38 +42,21 @@ def update_g():
     graph.draw()
 
 def update_v():
-    r = requests.get("https://api.thingspeak.com/channels/" + THINGSPEAK_CHANNELID + "/fields/1.json", params={"api_key":THINGSPEAK_API_READKEY,"results":"300"})
+    r = requests.get("https://api.thingspeak.com/channels/"+ THINGSPEAK_CHANNELID + "/fields/1/last.json", params={"api_key":THINGSPEAK_API_READKEY})
     j = r.json()
-    global ID_values
+    global ID_value
+    global a
 
-    temp_ID_values=[]
+    if ID_value!=int(j["entry_id"]):
+        for x in range(0,299):
+            temp[x]=temp[x+1]
 
-    for x in range(0,300):
-        temp_ID_values.append(0)
-    
-    l=0
-    for entry in j["feeds"]:
-       temp_ID_values[l]=int(entry["entry_id"])
-       l=l+1
+        if a==1:
+            temp[299]=(float(j["field1"])*1.8)+32
 
-    if  temp_ID_values[len(temp_ID_values)-1] != ID_values:
-        ID_values = temp_ID_values[len(temp_ID_values)-1]
-        #print(ID_values)
-
-        i=0
-        for entry in j["feeds"]:
-            temp[i]=float(entry["field1"])
-            i=i+1
-    
-    print(temp_ID_values)
-    print(' ')
 
     update()
     window.after(1000,update_v)
-
-    
-
-
 
 a=0
 def swi_temp():
@@ -89,12 +76,6 @@ def swi_temp():
 
 r = requests.get("https://api.thingspeak.com/channels/" + THINGSPEAK_CHANNELID + "/fields/1.json", params={"api_key":THINGSPEAK_API_READKEY,"results":"300"})
 j = r.json()
-#print(j)
-#print(j["feeds"])
-#for entry in j["feeds"]:
-#   print(float(entry["field1"]))
-
-
 
 window = tk.Tk() #create window
 
@@ -116,11 +97,10 @@ for x in range (1, 300):
     time_s.append(x-299)
 
 for entry in j["feeds"]:
-    temp.append(float(entry["field1"]))
+    if entry["field1"] != NoneType:
+        temp.append(float(entry["field1"]))
 
-ID_values=0
-
-
+ID_value = 0
 
 siz=tkFont.Font(size=30) #size of temperature font in the window
 

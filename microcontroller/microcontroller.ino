@@ -14,7 +14,7 @@
 #define ARDUINO 100 //this is so OneWire includes the right file
 #include <OneWire.h> //for communicating with temperature sensor
 #include <Ticker.h> //for hardware timer to trigger temp conversions every second
-#include <asyncHTTPrequest.h>
+#include <asyncHTTPrequest.h> //for non-interruting HTTP requests
 
 #include "password.h" //password file contains passwords for SMTP as well as API keys MAKE SURE THIS DOES NOT GET COMMITED TO GIT
 
@@ -39,10 +39,6 @@
 //define pin for temperature probe
 #define TEMP_PROBE D3
 
-//define topicstrings for mqtt
-#define FIELD2_SUBSCRIBE ("channels/" THINGSPEAK_CHANNEL_ID "/subscribe/fields/field2")
-#define FIELD1_PUBLISH ("channels/" THINGSPEAK_CHANNEL_ID "/publish/fields/field1")
-
 //define bit locations for decimal point and display on
 #define D_ON 0x0008
 #define DP 0x0100
@@ -57,7 +53,7 @@ enum STATE {
 
 STATE state = WAIT;
 
-const int8_t tempdatapowers[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0};
+const int8_t tempdatapowers[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, -7, -7, -7, -7, -7};
 
 float minTemp = 0.0;
 float maxTemp = 100.0;
@@ -124,21 +120,32 @@ void startTempConversion();
 //sends temp data to thingspeak
 void postTempData(String temp);
 
-//check for display on field in thingspeak
-void getDispOn();
+//requests config data (display on/off, alert phonenumber, min/max temp) from thingspeak
+void GetConfigData();
 
+//checks whether there is a temp probe connected to the box
 bool probeAvailable();
 
 //callback function for aysnc http requests
 void responseReceived(void* optParm, asyncHTTPrequest* request, int readyState) {
     requestOut = false;
     String response = request->responseText();
-    if(response.length() >= 2) { 
-        if(response.charAt(0) == 'D') {
-            dispOn = response.charAt(1) == '1';
-        } else {
-            getDispOn();
-        }
+    if(response.charAt(0) == '{') { 
+        //Serial.println(response);
+        int tmpindex = response.indexOf("\"field1\"");
+        dispOn = response.substring(tmpindex+10,response.indexOf("\"", tmpindex+11)).equals("1");
+        //Serial.println(dispOn);
+        tmpindex = response.indexOf("\"field2\"");
+        phonenumber = response.substring(tmpindex+10,response.indexOf("\"", tmpindex+11));
+        //Serial.println(phonenumber);
+        tmpindex = response.indexOf("\"field3\"");
+        minTemp = response.substring(tmpindex+10,response.indexOf("\"", tmpindex+11)).toFloat();
+        //Serial.println(minTemp);
+        tmpindex = response.indexOf("\"field4\"");
+        maxTemp = response.substring(tmpindex+10,response.indexOf("\"", tmpindex+11)).toFloat();
+        //Serial.println(maxTemp);
+    } else {
+        GetConfigData();
     }
 }
 
@@ -153,7 +160,6 @@ void setup() {
     pinMode(LED_BUILTIN, OUTPUT); //on the ESP8266 this is pin 2/D4
 
     display("--.--");
-    refreshDisplay();
 
     //attach temperature probe to OneWire library object
     tempProbe.begin(TEMP_PROBE);
@@ -191,17 +197,17 @@ void setup() {
 
     Serial.println("Internet Access Achieved!");
 
-    //starts initial temperature conversion if probe is connected
+    //starts initial temperature conversion if probe is connected, otherwise starts FSM in search state
     if(probeAvailable()) {
         startTempConversion();
     } else {
-        display("Er.Pr");
+        state=SEARCH_FOR_PROBE;
     }
     
     //setup timer intrrupt for measuring temperature every second
     timer1_attachInterrupt(eachSecond);
     timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
-    timer1_write(15000000);
+    timer1_write(6000000);
 
 }
 
@@ -254,10 +260,10 @@ bool probeAvailable() {
     return bool(tempProbe.reset());
 }
 
-void getDispOn() {
+void GetConfigData() {
     if(!requestOut) {
         requestOut = true;
-        ahttp.open("GET","http://api.thingspeak.com/channels/" THINGSPEAK_CHANNEL_ID "/fields/1/last.txt?api_key=" THINGSPEAK_API_READKEY "&prepend=D");
+        ahttp.open("GET","http://api.thingspeak.com/channels/" THINGSPEAK_CHANNEL_ID "/feeds/last.json?api_key=" THINGSPEAK_API_READKEY);
         ahttp.send();
     }
 }
@@ -379,6 +385,18 @@ void readTemp() {
 
     temp *= (-2 * ((data[1] >> 7) & 0x01)) + 1;
 
+    if(!alertSent) { //we check the alert sent flag to see if an alert for this condition has already been sent
+        if(temp < minTemp) {
+            sendSMS(phonenumber, "Temperature out of range low");
+            alertSent = true; //so we don't send a text every second when out of range, we set this flag
+        } else if (temp > maxTemp) {
+            sendSMS(phonenumber, "Temperature out of range high");
+            alertSent = true; //so we don't send a text every second when out of range, we set this flag
+        }
+    } else if(temp > minTemp && temp < maxTemp) { //if temperature is back in range, we reset the alert flag
+        alertSent = false;
+    }
+
     sprintf(disp, "%5.1f", temp);
     display(disp);
 }
@@ -424,7 +442,9 @@ void sendSMS(String phonenumber, String messageText) {
   message.sender.name = "ESP";
   message.sender.email = "oopsallees@gmail.com";
   message.subject = "ECE:4880 Lab 1 Alert";
-  message.addRecipient("Alertee", (phonenumber + "@vtext.com").c_str() );
+  char address[21];
+  (phonenumber + "@vtext.com").toCharArray(address, 21);
+  message.addRecipient("Alertee", address );
 
   //Send raw text message
   message.text.content = messageText.c_str();

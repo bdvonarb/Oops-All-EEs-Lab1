@@ -12,6 +12,8 @@ import math
 import time
 import threading
 
+import datetime
+
 from tkinter import ttk
 from tkinter import *
 from tkinter.ttk import *
@@ -25,11 +27,32 @@ def update_v():
 
     #for entry in j["feeds"]:
     #   print(int(entry["entry_id"]))
-    print(int(j["entry_id"]))
+    #print(int(j["entry_id"]))
+    #print(j["created_at"])
+    compare_to_utc=str(datetime.datetime.utcnow())
+    compare_to_utc=compare_to_utc[-15:]
+
+    compare_to_utc=int(compare_to_utc[0:2])*3600+int(compare_to_utc[3:5])*60+int(compare_to_utc[6:8])
+
+    t_reading=str(j["created_at"])
+    t_reading=t_reading[-9:]
+    t_reading=int(t_reading[0:2])*3600+int(t_reading[3:5])*60+int(t_reading[6:8])
+    print('New Read')
+    print(t_reading)
+    print(' ')
+    print(compare_to_utc)
+    print(' ')
+    
+    diff_t=compare_to_utc-t_reading
+    print(diff_t)
     print(' ')
 
-    window.after(1000,update_v)
 
+
+    if diff_t>2:
+        print("oh NO! OoO")
+
+    window.after(1000,update_v)
 
 window = tk.Tk()   
 

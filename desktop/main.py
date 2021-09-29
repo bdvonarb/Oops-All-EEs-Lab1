@@ -1,4 +1,5 @@
-from _typeshed import NoneType
+from numpy.core.numeric import NaN
+from numpy.lib.function_base import diff
 from password import THINGSPEAK_API_READKEY, THINGSPEAK_CHANNELID, THINGSPEAK_API_WRITEKEY
 import tkinter as tk
 import numpy as np
@@ -12,22 +13,61 @@ import json
 import math
 import time
 import threading
+import datetime
 
 from tkinter import ttk
 from tkinter import *
 from tkinter.ttk import *
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
+def enter_v():
+    window2=tk.Tk()
+    window2.title("Temperature Sensor Data Entry")
+    window2.geometry("200x200")
+
+    label_OT=tk.Label(window2, text = "Upper Temp Bound")
+    label_OT.place(x="60",y="20")
+
+    label_UT=tk.Label(window2, text = "Lower Temp Bound")
+    label_UT.place(x="60",y="60")
+
+    label_Pnum=tk.Label(window2, text = "Phone #")
+    label_Pnum.place(x="60",y="100")        
+
+    Over_Temp=tk.Text(window2,height = 1, width=5)
+    Over_Temp.place(x="120",y="20")
+
+    Under_Temp=tk.Text(window2,height = 1, width=5)
+    Under_Temp.place(x="120",y="60")
+
+    phone_num=tk.Text(window2,height = 1, width=12)
+    phone_num.place(x="92",y="100")
+
+
+
+    window2.mainloop()
+
 dispon=0
 def trigger_remote():
     global dispon
-    r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field2': str(dispon)})
-    print(r1.json())
-    dispon ^= 1
+    if dispon == 0:
+        r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '1'})
+        print(r1.status_code)
+        print(r1.json())
+        dispon=1
+    elif dispon == 1:
+        r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '0'})
+        print(r1.status_code)
+        print(r1.json())
+        dispon=0       
     return
 
 def update():
     temp_.config(text=round(temp[len(temp)-1],1))
+    if not temp[-1] < 600 and not temp[-1] > -600:
+        temp_.config(text="Sys Off")
+        temp_.place(x="515",y="545")
+
     fig.clf()#clear graph to allow other graph to be placed over
     update_g()
 
@@ -35,6 +75,13 @@ def update_g():
     temp_figure = fig.add_subplot(111) #assigning the figure a plot 
 
     temp_figure.plot(time_s,temp, color= "black") #plotting time vs temp
+    temp_figure.set_title("Temperature")
+    temp_figure.set_xlabel("Last 300 Seconds")
+    
+    if a==1:
+        temp_figure.set_ylabel("Degrees Fahrenheit")
+    else:
+        temp_figure.set_ylabel("Degrees Celsius")
 
     #displaying the plot to the window
     graph = FigureCanvasTkAgg(fig,master= window)
@@ -47,15 +94,36 @@ def update_v():
     global ID_value
     global a
 
-    if ID_value!=int(j["entry_id"]):
+    compare_to_utc=str(datetime.datetime.utcnow())
+    compare_to_utc=compare_to_utc[-15:]
+    compare_to_utc=int(compare_to_utc[0:2])*3600+int(compare_to_utc[3:5])*60+int(compare_to_utc[6:8])
+
+    t_reading=str(j["created_at"])
+    t_reading=t_reading[-9:]
+    t_reading=int(t_reading[0:2])*3600+int(t_reading[3:5])*60+int(t_reading[6:8])
+    
+    diff_t=compare_to_utc-t_reading
+
+    
+    if diff_t<3:
+        if ID_value!=int(j["entry_id"]):
+            for x in range(0,299):
+                temp[x]=temp[x+1]
+
+            if a==1:
+                temp[299]=(float(j["field1"])*1.8)+32
+            else:
+                temp[299]=float(j["field1"])
+        update()
+    
+ 
+    else:
         for x in range(0,299):
             temp[x]=temp[x+1]
+        temp[299]=NaN
+        update()
 
-        if a==1:
-            temp[299]=(float(j["field1"])*1.8)+32
 
-
-    update()
     window.after(1000,update_v)
 
 a=0
@@ -77,6 +145,8 @@ def swi_temp():
 r = requests.get("https://api.thingspeak.com/channels/" + THINGSPEAK_CHANNELID + "/fields/1.json", params={"api_key":THINGSPEAK_API_READKEY,"results":"300"})
 j = r.json()
 
+enter_v()
+
 window = tk.Tk() #create window
 
 #window characteristics
@@ -97,8 +167,10 @@ for x in range (1, 300):
     time_s.append(x-299)
 
 for entry in j["feeds"]:
-    if entry["field1"] != NoneType:
+    if entry["field1"] != None:
         temp.append(float(entry["field1"]))
+    else:
+        temp.append(0)
 
 ID_value = 0
 

@@ -78,13 +78,13 @@ def trigger_remote():
     global Phone
     if dispon == 0:
         r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '1', 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
-        print(r1.status_code)
-        print(r1.json())
+        #print(r1.status_code)
+        #print(r1.json())
         dispon=1
     elif dispon == 1:
         r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '0', 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
-        print(r1.status_code)
-        print(r1.json())
+        #print(r1.status_code)
+        #print(r1.json())
         dispon=0       
     return
 

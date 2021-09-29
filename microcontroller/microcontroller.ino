@@ -47,7 +47,23 @@
 #define D_ON 0x0008
 #define DP 0x0100
 
+enum STATE {
+    WAIT,
+    READ_TEMP,
+    START_CONVERSION,
+    POST_DATA,
+    SEARCH_FOR_PROBE
+};
+
+STATE state = WAIT;
+
 const int8_t tempdatapowers[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, 0, 0, 0, 0, 0};
+
+float minTemp = 0.0;
+float maxTemp = 100.0;
+String phonenumber = BENS_PHONENUMBER;
+
+bool alertSent = false;
 
 //bit format for each digit
 const uint16_t digForm[4] = {0x0080, 0x0040, 0x0020, 0x0010};
@@ -74,11 +90,7 @@ SMTPSession smtp;
 
 OneWire tempProbe;
 
-void responseReceived(void* optParm, asyncHTTPrequest* request, int readyState) {
-    Serial.print("HTTP response received: ");
-    Serial.println(request->responseHTTPcode());
-    Serial.println(request->responseText());
-}
+volatile bool requestOut = false;
 
 bool captiveLogin();
 
@@ -103,11 +115,32 @@ uint8_t segMap(char digit);
 //computes exponent, can handle negative exponents
 float power(uint8_t base, int8_t exponent);
 
+//reads the current temperature and updates the display fields
+void readTemp();
+
+//starts a new temperature conversion
+void startTempConversion();
+
 //sends temp data to thingspeak
 void postTempData(String temp);
 
 //check for display on field in thingspeak
 void getDispOn();
+
+bool probeAvailable();
+
+//callback function for aysnc http requests
+void responseReceived(void* optParm, asyncHTTPrequest* request, int readyState) {
+    requestOut = false;
+    String response = request->responseText();
+    if(response.length() >= 2) { 
+        if(response.charAt(0) == 'D') {
+            dispOn = response.charAt(1) == '1';
+        } else {
+            getDispOn();
+        }
+    }
+}
 
 void setup() {
     Serial.begin(115200); //start serial at 115200 baud for debug information on USB
@@ -119,12 +152,26 @@ void setup() {
     pinMode(Rclk, OUTPUT);
     pinMode(LED_BUILTIN, OUTPUT); //on the ESP8266 this is pin 2/D4
 
+    display("--.--");
+    refreshDisplay();
+
     //attach temperature probe to OneWire library object
     tempProbe.begin(TEMP_PROBE);
+
+    //see if probe is attached, if so, set addr
+    tempProbe.search(addr);
     
+    //we need to make some https requests later, for that we need a secure client, but we don't actually care about security
+    //  because it will be annoying to set up, so we just fake a secure client that's really not secure
+    sclient->setInsecure();
+
+    //add callback for async http requests
+    ahttp.onData(responseReceived);
+    //ahttp.setDebug(true); //prints loads of debug info for the async requests
+
     Serial.println("Starting WiFi Manager");
 
-    wifimanager.autoConnect("Oops All EEs"); //automatically connects to previously connected WiFi SSID, 
+    wifimanager.autoConnect("Oops All EEs"); //automatically connects to previously connected WiFi SSID (credentials in EEPROM), 
         //or if this fails it automatically starts a AP that you can connect to from your phone to configure SSID and password
         //simply connect to the AP (no password), then enter the IP address 192.168.4.1 to access the configuration portal
 
@@ -137,29 +184,56 @@ void setup() {
     //      intervention, basically what we need to do is hit a top sneaky login server on the university network with a login request
     //      before it will give us access to the internet, the following function does just that
 
-    sclient->setInsecure(); //we don't actually care about security so we just fake it
-
     if(!captiveLogin()) {
         Serial.println("Captive portal login failed, program aborting");
         return;
     }
 
     Serial.println("Internet Access Achieved!");
+
+    //starts initial temperature conversion if probe is connected
+    if(probeAvailable()) {
+        startTempConversion();
+    } else {
+        display("Er.Pr");
+    }
     
     //setup timer intrrupt for measuring temperature every second
     timer1_attachInterrupt(eachSecond);
     timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
     timer1_write(15000000);
-    
-
-    if(!tempProbe.search(addr)) { //search for temp probe, if it's not there then return
-        Serial.println("Temp probe not found");
-        return;
-    }
 
 }
 
 void loop() {
+    switch(state) {
+        case WAIT:
+            break;
+        case READ_TEMP:
+            if(probeAvailable()) {
+                readTemp();
+                state = START_CONVERSION;
+            } else {
+                state = SEARCH_FOR_PROBE;
+            }
+            break;
+        case START_CONVERSION:
+            if(probeAvailable()) {
+                startTempConversion();
+                state = POST_DATA;
+            } else {
+                state = SEARCH_FOR_PROBE;
+            }
+            break;
+        case POST_DATA:
+            postTempData(String(disp));
+            state = WAIT;
+            break;
+        case SEARCH_FOR_PROBE:
+            display("Er.Pr");
+            tempProbe.search(addr);
+            state = WAIT;
+    }
     refreshDisplay();
 }
 
@@ -168,14 +242,24 @@ void postTempData(String temp) {
     temp.trim();
     postcode += temp;
 
-    ahttp.open("POST","http://api.thingspeak.com/update");
-    ahttp.setReqHeader("Content-Type", "application/x-www-form-urlencoded");
-    ahttp.send(postcode);
+    if(!requestOut) {
+        requestOut = true;
+        ahttp.open("POST","http://api.thingspeak.com/update");
+        ahttp.setReqHeader("Content-Type", "application/x-www-form-urlencoded");
+        ahttp.send(postcode);
+    }
+}
+
+bool probeAvailable() {
+    return bool(tempProbe.reset());
 }
 
 void getDispOn() {
-    ahttp.open("GET","https://api.thingspeak.com/channels/" THINGSPEAK_CHANNEL_ID "/fields/2/last?api_key=" THINGSPEAK_API_READKEY);
-    ahttp.send();
+    if(!requestOut) {
+        requestOut = true;
+        ahttp.open("GET","http://api.thingspeak.com/channels/" THINGSPEAK_CHANNEL_ID "/fields/1/last.txt?api_key=" THINGSPEAK_API_READKEY "&prepend=D");
+        ahttp.send();
+    }
 }
 
 void display(char disp[]) {
@@ -218,35 +302,41 @@ uint8_t segMap(char digit, bool dp) {
         case '9':
             map = 0b11110110;
             break;
-        case 'A': //A
+        case 'A':
             map = 0b11101110;
             break;
-        case 'b': //b
+        case 'b':
             map = 0b00111110;
             break;
-        case 'c': //c
+        case 'c':
             map = 0b00011010;
             break;
-        case 'd': //d
+        case 'd':
             map = 0b01111010;
             break;
-        case 'E': //E
+        case 'E':
             map = 0b10011110;
             break;
-        case 'F': //F
+        case 'F':
             map = 0b10001110;
             break;
-        case 'r': //r
+        case 'r':
             map = 0b00001010;
             break;
-        case 'H': //H
+        case 'H':
             map = 0b01101110;
             break;
-        case 'L': //L
+        case 'L':
             map = 0b00011100;
             break;
-        case 'o': //o
+        case 'o':
             map = 0b00111010;
+            break;
+        case 'P':
+            map = 0b11001110;
+            break;
+        case '-':
+            map = 0b00000010;
             break;
     }
     return map | dp;
@@ -267,7 +357,7 @@ void writeToReg(uint16_t trans) {
     digitalWrite(Rclk, LOW);
 }
 
-void ICACHE_RAM_ATTR eachSecond() {
+void readTemp() {
     byte data[12];
 
     //read previously started conversion
@@ -276,21 +366,8 @@ void ICACHE_RAM_ATTR eachSecond() {
     tempProbe.write(0xBE); //read scratchpad
     for (uint8_t i = 0; i < 9; i++) {           // we need 9 bytes
         data[i] = tempProbe.read();
-        if(i < 2) {
-            Serial.print(data[i], BIN);
-        } else {
-            Serial.print(data[i], HEX);
-        }
-        Serial.print(" ");
     }
-    Serial.println("");
     uint16_t tempBytes = data[1] << 8 | data[0];
-    Serial.println(tempBytes, BIN);
-
-    //start new conversion for next time
-    tempProbe.reset();
-    tempProbe.select(addr);
-    tempProbe.write(0x44); //start conversion
 
     float temp = 0;
 
@@ -300,19 +377,20 @@ void ICACHE_RAM_ATTR eachSecond() {
         }
     }
 
-    Serial.print(" CRC=");
-    Serial.print( OneWire::crc8( data, 8), HEX);
-    Serial.println();
-
     temp *= (-2 * ((data[1] >> 7) & 0x01)) + 1;
 
     sprintf(disp, "%5.1f", temp);
     display(disp);
-    
-    postTempData(String(disp));
+}
 
-    Serial.print("Temp: ");
-    Serial.println(temp);
+void startTempConversion() {
+    tempProbe.reset();
+    tempProbe.select(addr);
+    tempProbe.write(0x44); //start conversion
+}
+
+void ICACHE_RAM_ATTR eachSecond() {
+    state = READ_TEMP;
 }
 
 float power(uint8_t base, int8_t exponent) {

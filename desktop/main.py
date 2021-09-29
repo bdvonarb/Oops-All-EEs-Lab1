@@ -92,7 +92,7 @@ def update():
     temp_.config(text=round(temp[len(temp)-1],1))
     if not temp[-1] < 600 and not temp[-1] > -600:
         temp_.config(text="No Data")
-        temp_.place(x="515",y="545")
+        temp_.place(x="490",y="545")
 
     fig.clf()#clear graph to allow other graph to be placed over
     update_g()

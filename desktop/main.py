@@ -18,32 +18,44 @@ import datetime
 from tkinter import ttk
 from tkinter import *
 from tkinter.ttk import *
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg   
+
 
 def enter_v():
+    def enter_but():
+        MaxT=Over_Temp.get()
+        MinT=Under_Temp.get()
+        Phone=phone_num.get()
+        r = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
+        window2.destroy()
+
     window2=tk.Tk()
     window2.title("Temperature Sensor Data Entry")
-    window2.geometry("200x200")
+    window2.geometry("180x180")
 
-    label_OT=tk.Label(window2, text = "Upper Temp Bound")
-    label_OT.place(x="60",y="20")
+    label_OT=tk.Label(window2, text = "Upper Temp Bound:")
+    label_OT.place(x="10",y="40")
 
-    label_UT=tk.Label(window2, text = "Lower Temp Bound")
-    label_UT.place(x="60",y="60")
+    label_UT=tk.Label(window2, text = "Lower Temp Bound:")
+    label_UT.place(x="10",y="80")
 
-    label_Pnum=tk.Label(window2, text = "Phone #")
-    label_Pnum.place(x="60",y="100")        
+    label_Pnum=tk.Label(window2, text = "Phone # :")
+    label_Pnum.place(x="10",y="120")        
 
-    Over_Temp=tk.Text(window2,height = 1, width=5)
-    Over_Temp.place(x="120",y="20")
+    Over_Temp=tk.Entry(window2)
+    Over_Temp.place(x="120",y="40",height = 21, width=45)
 
-    Under_Temp=tk.Text(window2,height = 1, width=5)
-    Under_Temp.place(x="120",y="60")
+    Under_Temp=tk.Entry(window2)
+    Under_Temp.place(x="120",y="80",height = 21, width=45)
 
-    phone_num=tk.Text(window2,height = 1, width=12)
-    phone_num.place(x="92",y="100")
+    phone_num=tk.Entry(window2)
+    phone_num.place(x="65",y="120",height = 21, width=100)
 
+    rule=tk.Label(window2, text = "Enter Temperature in Celsius")
+    rule.place(x="10",y="10")  
 
+    enter=tk.Button(window2,height=1,width=20,text="Enter",command=enter_but)
+    enter.place(x='14',y='150')
 
     window2.mainloop()
 

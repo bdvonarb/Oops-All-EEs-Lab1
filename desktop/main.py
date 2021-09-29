@@ -20,14 +20,25 @@ from tkinter import *
 from tkinter.ttk import *
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg   
 
-
+MaxT=100
+MinT=0
+Phone=4205556969
 def enter_v():
     def enter_but():
-        MaxT=Over_Temp.get()
-        MinT=Under_Temp.get()
-        Phone=phone_num.get()
-        r = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
-        window2.destroy()
+        global MaxT
+        global MinT
+        global Phone
+        MaxT=int(Over_Temp.get())
+        MinT=int(Under_Temp.get())
+        Phone=int(phone_num.get())
+        if MaxT<150 and MinT>-30 and Phone>1000000000 and Phone<10000000000:
+            r = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1':'0', 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
+            window2.destroy()
+        else:
+            MaxT=63
+            MinT=0
+            Phone=4205556969
+            enter_but()
 
     window2=tk.Tk()
     window2.title("Temperature Sensor Data Entry")
@@ -62,13 +73,16 @@ def enter_v():
 dispon=0
 def trigger_remote():
     global dispon
+    global MaxT
+    global MinT
+    global Phone
     if dispon == 0:
-        r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '1'})
+        r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '1', 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
         print(r1.status_code)
         print(r1.json())
         dispon=1
     elif dispon == 1:
-        r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '0'})
+        r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '0', 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
         print(r1.status_code)
         print(r1.json())
         dispon=0       
@@ -77,7 +91,7 @@ def trigger_remote():
 def update():
     temp_.config(text=round(temp[len(temp)-1],1))
     if not temp[-1] < 600 and not temp[-1] > -600:
-        temp_.config(text="Sys Off")
+        temp_.config(text="No Data")
         temp_.place(x="515",y="545")
 
     fig.clf()#clear graph to allow other graph to be placed over
@@ -92,8 +106,10 @@ def update_g():
     
     if a==1:
         temp_figure.set_ylabel("Degrees Fahrenheit")
+        temp_figure.set_ybound(lower=50,upper=122)
     else:
         temp_figure.set_ylabel("Degrees Celsius")
+        temp_figure.set_ybound(lower=10,upper=50)
 
     #displaying the plot to the window
     graph = FigureCanvasTkAgg(fig,master= window)

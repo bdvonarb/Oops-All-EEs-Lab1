@@ -89,34 +89,38 @@ def enter_v():
 
     window2.mainloop()
 
-dispon=0
+#function to turn on the remote display
+dispon=0 #variable that keeps track of the switch being on or off
 def trigger_remote():
+    #we send the upper and lower temp bounds during this cycle in order to only have one data line
     global dispon
     global MaxT
     global MinT
     global Phone
     if dispon == 0:
+        #sends data to server with field 1 being 1 indicating the MC should turn on the MOSFET allowing the display to be on
         r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '1', 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
-        #print(r1.status_code)
-        #print(r1.json())
         dispon=1
     elif dispon == 1:
+        #same as before except now we send a 0 to turn off the MOSFET 
         r1 = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1': '0', 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
-        #print(r1.status_code)
-        #print(r1.json())
         dispon=0       
     return
 
+#function to update the text
 def update():
-    temp_.config(text=round(temp[len(temp)-1],1))
+    temp_.config(text=round(temp[len(temp)-1],1))#label reconfigure to update the Temp text every time we recieve a new value
     temp_.place(x=520,y=545)
+
+    #if statement to determine if the MC is turned off
     if not temp[-1] < 600 and not temp[-1] > -600:
         temp_.config(text="No Data")
         temp_.place(x="490",y="545")
 
     fig.clf()#clear graph to allow other graph to be placed over
-    update_g()
+    update_g()#call graph function to plot
 
+#function for graphing the temp vector vs the time vector
 def update_g():
     temp_figure = fig.add_subplot(111) #assigning the figure a plot 
 
@@ -125,6 +129,7 @@ def update_g():
     temp_figure.set_xlabel("Last 300 Seconds")
     temp_figure.set_xbound(lower=-300,upper=0)
     
+    #depending on the state of a being triggered tells us if temp is being scaled in which case we need to switch the y axis accordingly
     if a==1:
         temp_figure.set_ylabel("Degrees Fahrenheit")
         temp_figure.set_ybound(lower=50,upper=122)
@@ -132,32 +137,40 @@ def update_g():
         temp_figure.set_ylabel("Degrees Celsius")
         temp_figure.set_ybound(lower=10,upper=50)
 
-    #displaying the plot to the window
+    #displaying the plot to the window via the figure object
     graph = FigureCanvasTkAgg(fig,master= window)
     graph.get_tk_widget().place(x=75,y=0)
     graph.draw()
 
+#update function that pings the server for the most recent measured value
 def update_v():
-    r = requests.get("https://api.thingspeak.com/channels/"+ THINGSPEAK_CHANNELID + "/fields/1/last.json", params={"api_key":THINGSPEAK_API_READKEY})
-    j = r.json()
+    r = requests.get("https://api.thingspeak.com/channels/"+ THINGSPEAK_CHANNELID + "/fields/1/last.json", params={"api_key":THINGSPEAK_API_READKEY})#request most recent data point
+    j = r.json()#assign data to vector j
     global ID_value
     global a
 
-    compare_to_utc=str(datetime.datetime.utcnow())
+    compare_to_utc=str(datetime.datetime.utcnow()) #pull the current UTC time
+
+    #slicing the time so I only have the time exempting the date
     compare_to_utc=compare_to_utc[-15:]
     compare_to_utc=int(compare_to_utc[0:2])*3600+int(compare_to_utc[3:5])*60+int(compare_to_utc[6:8])
 
-    t_reading=str(j["created_at"])
+    t_reading=str(j["created_at"])#request most recent measurement time
+
+    #slicing the measurement time so I only have hours:minutes:sec
     t_reading=t_reading[-9:]
     t_reading=int(t_reading[0:2])*3600+int(t_reading[3:5])*60+int(t_reading[6:8])
     
-    diff_t=compare_to_utc-t_reading
+    diff_t=compare_to_utc-t_reading #compare the two to determine how long since a new measurement
 
+    #compare the length of time to a new measurement and determine if its been longer then 3 seconds, if not execute as long as the most recent value is not NaN
     if diff_t<3 and not np.isnan(float(j["field1"])):
         if ID_value!=int(j["entry_id"]):
+            #shift all the values down the vector like popping the 0th place
             for x in range(0,299):
                 temp[x]=temp[x+1]
 
+            #then push on the most recent value depending on if we want to know F instead C
             if a==1:
                 temp[299]=(float(j["field1"])*1.8)+32
             else:

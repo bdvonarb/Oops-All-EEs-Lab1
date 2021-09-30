@@ -33,7 +33,7 @@
 
 //define pins for display shift registers
 #define SER D0
-#define Sclk D1
+#define Sclk D1 
 #define Rclk D2
 
 //define pin for temperature probe
@@ -48,12 +48,14 @@ enum STATE {
     READ_TEMP,
     START_CONVERSION,
     POST_DATA,
-    SEARCH_FOR_PROBE
+    SEARCH_FOR_PROBE,
+    PROBE_RECOVERY_WAIT,
+    PROBE_RECOVERY
 };
 
 STATE state = WAIT;
 
-const int8_t tempdatapowers[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6, -7, -7, -7, -7, -7};
+const int8_t tempdatapowers[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6};
 
 float minTemp = 0.0;
 float maxTemp = 100.0;
@@ -125,6 +127,9 @@ void GetConfigData();
 
 //checks whether there is a temp probe connected to the box
 bool probeAvailable();
+
+//posts NaN to thingspeak to signify lack of probe
+void postNaN();
 
 //callback function for aysnc http requests
 void responseReceived(void* optParm, asyncHTTPrequest* request, int readyState) {
@@ -206,8 +211,8 @@ void setup() {
     
     //setup timer intrrupt for measuring temperature every second
     timer1_attachInterrupt(eachSecond);
-    timer1_enable(TIM_DIV16, TIM_EDGE, TIM_LOOP);
-    timer1_write(6000000);
+    timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
+    timer1_write(375000); //technically 1.2s but the http isn't fast enough to actually do 1s shhhhhhhhhh
 
 }
 
@@ -237,8 +242,21 @@ void loop() {
             break;
         case SEARCH_FOR_PROBE:
             display("Er.Pr");
-            tempProbe.search(addr);
+            if (probeAvailable()) {
+                tempProbe.search(addr);
+                timer1_write(750000);
+                state = PROBE_RECOVERY_WAIT;
+            } else {
+                postNaN();
+            }
             state = WAIT;
+            break;
+        case PROBE_RECOVERY_WAIT:
+            break;
+        case PROBE_RECOVERY:
+            startTempConversion();
+            state = WAIT;
+            break;
     }
     refreshDisplay();
 }
@@ -265,6 +283,16 @@ void GetConfigData() {
         requestOut = true;
         ahttp.open("GET","http://api.thingspeak.com/channels/" THINGSPEAK_CHANNEL_ID "/feeds/last.json?api_key=" THINGSPEAK_API_READKEY);
         ahttp.send();
+    }
+}
+
+void postNaN() {
+    if(!requestOut) {
+        String postcode = "api_key=" THINGSPEAK_API_WRITEKEY "&field1=NaN";
+        requestOut = true;
+        ahttp.open("POST","http://api.thingspeak.com/update");
+        ahttp.setReqHeader("Content-Type", "application/x-www-form-urlencoded");
+        ahttp.send(postcode);
     }
 }
 
@@ -377,13 +405,15 @@ void readTemp() {
 
     float temp = 0;
 
-    for(uint8_t i = 0; i < 16; i++) {
+    for(uint8_t i = 0; i < 11; i++) {
         if((tempBytes >> i) & 1) {
             temp += power(2,tempdatapowers[i]);
         }
     }
 
-    temp *= (-2 * ((data[1] >> 7) & 0x01)) + 1;
+    if(tempBytes & 0x8000) {
+        temp -= 127.9375;
+    }
 
     if(!alertSent) { //we check the alert sent flag to see if an alert for this condition has already been sent
         if(temp < minTemp) {
@@ -408,7 +438,13 @@ void startTempConversion() {
 }
 
 void ICACHE_RAM_ATTR eachSecond() {
-    state = READ_TEMP;
+    if (state == PROBE_RECOVERY_WAIT) {
+        timer1_write(750000);
+        state = PROBE_RECOVERY;
+    } else {
+        state = READ_TEMP;
+        timer1_write(375000);
+    }
 }
 
 float power(uint8_t base, int8_t exponent) {

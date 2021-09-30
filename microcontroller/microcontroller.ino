@@ -43,6 +43,9 @@
 #define D_ON 0x0008
 #define DP 0x0100
 
+//define one *cough* second of ticks
+#define ONE_SEC_TICKS ((80000000) / (256)) * 1.2
+
 enum STATE {
     WAIT,
     READ_TEMP,
@@ -59,7 +62,7 @@ const int8_t tempdatapowers[] = {-4, -3, -2, -1, 0, 1, 2, 3, 4, 5, 6};
 
 float minTemp = 0.0;
 float maxTemp = 100.0;
-String phonenumber = BENS_PHONENUMBER;
+String phonenumber = "4205556969";
 
 bool alertSent = false;
 
@@ -212,7 +215,7 @@ void setup() {
     //setup timer intrrupt for measuring temperature every second
     timer1_attachInterrupt(eachSecond);
     timer1_enable(TIM_DIV256, TIM_EDGE, TIM_SINGLE);
-    timer1_write(375000); //technically 1.2s but the http isn't fast enough to actually do 1s shhhhhhhhhh
+    timer1_write(ONE_SEC_TICKS); //technically 1.2s but the http isn't fast enough to actually do 1s shhhhhhhhhh
 
 }
 
@@ -244,12 +247,12 @@ void loop() {
             display("Er.Pr");
             if (probeAvailable()) {
                 tempProbe.search(addr);
-                timer1_write(750000);
-                state = PROBE_RECOVERY_WAIT;
+                startTempConversion();
+                state = WAIT;
             } else {
                 postNaN();
+                state = PROBE_RECOVERY_WAIT;
             }
-            state = WAIT;
             break;
         case PROBE_RECOVERY_WAIT:
             break;
@@ -439,12 +442,11 @@ void startTempConversion() {
 
 void ICACHE_RAM_ATTR eachSecond() {
     if (state == PROBE_RECOVERY_WAIT) {
-        timer1_write(750000);
-        state = PROBE_RECOVERY;
+        state = SEARCH_FOR_PROBE;
     } else {
         state = READ_TEMP;
-        timer1_write(375000);
     }
+    timer1_write(ONE_SEC_TICKS);
 }
 
 float power(uint8_t base, int8_t exponent) {

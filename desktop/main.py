@@ -19,52 +19,71 @@ from tkinter import ttk
 from tkinter import *
 from tkinter.ttk import *
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg   
-
+#default temp values and fake phone number
 MaxT=100
 MinT=0
 Phone=4205556969
+
+#first window function that request you put in the upper temp, lower temp and a phone number
 def enter_v():
     def enter_but():
+
+        #global variables for lower and upper temp and phone so we can change them in the function
         global MaxT
         global MinT
         global Phone
+
+        #get the values from the dialogue boxes of the first window
         MaxT=int(Over_Temp.get())
         MinT=int(Under_Temp.get())
         Phone=int(phone_num.get())
+
+        #only allow temp values of 150 to -30 to be entered and forces the length of a phone number to be correct
         if MaxT<150 and MinT>-30 and Phone>1000000000 and Phone<10000000000:
             r = requests.get('https://api.thingspeak.com/update.json', params={'api_key':THINGSPEAK_API_WRITEKEY, 'field1':'0', 'field2': str(Phone), 'field3': str(MinT), 'field4': str(MaxT)})
-            window2.destroy()
+            window2.destroy()#destroys window after sending information to the server
+        
+        #puts in default values if incorrect numbers are input
         else:
             MaxT=63
             MinT=0
             Phone=4205556969
-            enter_but()
+            window2.destroy()
 
+    #create window and title
     window2=tk.Tk()
     window2.title("Temperature Sensor Data Entry")
     window2.geometry("180x180")
 
+    #create label for upper temp bound 
     label_OT=tk.Label(window2, text = "Upper Temp Bound:")
     label_OT.place(x="10",y="40")
 
+    #create label for lower temp bound
     label_UT=tk.Label(window2, text = "Lower Temp Bound:")
     label_UT.place(x="10",y="80")
 
+    #create label for phone number
     label_Pnum=tk.Label(window2, text = "Phone # :")
     label_Pnum.place(x="10",y="120")        
 
+    #create input box for upper temp
     Over_Temp=tk.Entry(window2)
     Over_Temp.place(x="120",y="40",height = 21, width=45)
 
+    #create input box for lower temp
     Under_Temp=tk.Entry(window2)
     Under_Temp.place(x="120",y="80",height = 21, width=45)
 
+    #create input box for phone number
     phone_num=tk.Entry(window2)
     phone_num.place(x="65",y="120",height = 21, width=100)
 
+    #input information
     rule=tk.Label(window2, text = "Enter Temperature in Celsius")
     rule.place(x="10",y="10")  
 
+    #button that enters the data
     enter=tk.Button(window2,height=1,width=20,text="Enter",command=enter_but)
     enter.place(x='14',y='150')
 
@@ -90,6 +109,7 @@ def trigger_remote():
 
 def update():
     temp_.config(text=round(temp[len(temp)-1],1))
+    temp_.place(x=520,y=545)
     if not temp[-1] < 600 and not temp[-1] > -600:
         temp_.config(text="No Data")
         temp_.place(x="490",y="545")
@@ -103,6 +123,7 @@ def update_g():
     temp_figure.plot(time_s,temp, color= "black") #plotting time vs temp
     temp_figure.set_title("Temperature")
     temp_figure.set_xlabel("Last 300 Seconds")
+    temp_figure.set_xbound(lower=-300,upper=0)
     
     if a==1:
         temp_figure.set_ylabel("Degrees Fahrenheit")
@@ -132,8 +153,7 @@ def update_v():
     
     diff_t=compare_to_utc-t_reading
 
-    
-    if diff_t<3:
+    if diff_t<3 and not np.isnan(float(j["field1"])):
         if ID_value!=int(j["entry_id"]):
             for x in range(0,299):
                 temp[x]=temp[x+1]
@@ -144,7 +164,15 @@ def update_v():
                 temp[299]=float(j["field1"])
         update()
     
- 
+    elif np.isnan(float(j["field1"])):
+        for x in range(0,299):
+            temp[x]=temp[x+1]
+        temp[299]=NaN        
+        temp_.config(text="Probe Er")
+        temp_.place(x="480",y="545")
+        fig.clf()
+        update_g()
+
     else:
         for x in range(0,299):
             temp[x]=temp[x+1]

@@ -122,6 +122,35 @@ def update():
 
 #function for graphing the temp vector vs the time vector
 def update_g():
+
+    #width = int(window.winfo_screenmmwidth())
+    #height = int(window.winfo_screenheight())
+
+    #width = int(window.winfo_reqwidth())
+    #height = int(window.winfo_reqheight())
+
+    #wbyh = str(window.geometry())
+    #print(len(wbyh))
+    #if len(wbyh)==15:
+    #    print(wbyh)
+    #    wbyh=wbyh[0:7]
+    #    width = int(wbyh[0:3])
+    #    height = int(wbyh[4:7])
+    #    fig.set_size_inches((width/1000)*0.5,(height/1000)*5.73)
+    #elif len(wbyh)==16:
+
+ 
+
+    #elif len(wbyh)==17:
+
+
+
+
+
+    #print(width,height)
+
+
+
     temp_figure = fig.add_subplot(111) #assigning the figure a plot 
 
     temp_figure.plot(time_s,temp, color= "black") #plotting time vs temp

@@ -122,37 +122,44 @@ def update():
 
 #function for graphing the temp vector vs the time vector
 def update_g():
-
     #width = int(window.winfo_screenmmwidth())
     #height = int(window.winfo_screenheight())
 
     #width = int(window.winfo_reqwidth())
     #height = int(window.winfo_reqheight())
 
-    #wbyh = str(window.geometry())
-    #print(len(wbyh))
-    #if len(wbyh)==15:
-    #    print(wbyh)
-    #    wbyh=wbyh[0:7]
-    #    width = int(wbyh[0:3])
-    #    height = int(wbyh[4:7])
-    #    fig.set_size_inches((width/1000)*0.5,(height/1000)*5.73)
-    #elif len(wbyh)==16:
+    wbyh = str(window.geometry())
+    width=[]
+    height=[]
 
- 
+    check=0
+    for x in range(0,len(wbyh)):
+        if wbyh[x].isnumeric() and check==0:
+            width.append(int(wbyh[x]))
 
-    #elif len(wbyh)==17:
+        if wbyh[x].isnumeric() and check==1:
+            height.append(int(wbyh[x]))
+
+        elif wbyh[x]=="x":
+            check=1
+
+        elif wbyh[x]=="+":
+            break
+
+    nwidth=""
+    for x in range(0,len(width)):
+        nwidth+=str(width[x])
+    
+    nheight=""
+    for x in range(0,len(height)):
+        nheight+=str(height[x])
+    
 
 
-
-
-
-    #print(width,height)
-
-
+    fig.set_size_inches((int(nwidth)/1000)*8,(int(nheight)/1000)*5.73)
 
     temp_figure = fig.add_subplot(111) #assigning the figure a plot 
-
+    temp_figure.clear()
     temp_figure.plot(time_s,temp, color= "black") #plotting time vs temp
     temp_figure.set_title("Temperature")
     temp_figure.set_xlabel("Last 300 Seconds")
@@ -167,9 +174,17 @@ def update_g():
         temp_figure.set_ybound(lower=10,upper=50)
 
     #displaying the plot to the window via the figure object
+    for widget in window.winfo_children():
+        if widget.widgetName == "canvas":
+            widget.destroy()
+
     graph = FigureCanvasTkAgg(fig,master= window)
     graph.get_tk_widget().place(x=75,y=0)
+
     graph.draw()
+    
+
+
 
 #update function that pings the server for the most recent measured value
 def update_v():
@@ -275,6 +290,7 @@ ID_value = 0
 siz=tkFont.Font(size=30) #size of temperature font in the window
 
 fig = fi.Figure(figsize=(6,4.3)) #size of figure that represents the graph
+
 
 update_g()
 

@@ -1,11 +1,20 @@
-#include <arduino.h>
-#ifndef __AVR_ATmega328P__
-    #include <avr/iom328p.h> //meant to be run on arduino UNO may require modification (only to timer stuff) to work on ESP8266
-#endif
+#include <Arduino.h>
 
-#define SER 8
-#define Sclk 10
-#define Rclk 9
+#define D0 16
+#define D1 5
+#define D2 4
+#define D3 0
+#define D4 2
+#define D5 14
+#define D6 12
+#define D7 13
+#define D8 15
+#define D9 3
+#define D10 1
+
+#define SER D0
+#define Sclk D1
+#define Rclk D2
 
 #define dig1form 0x0080
 #define dig2form 0x0040
@@ -17,7 +26,7 @@ uint16_t dispData[4] = {dig1form, dig2form, dig3form, dig4form};
 
 bool dispOn = false;
 
-uint16_t time = 0;
+uint16_t timeC = 0;
 
 void writeToReg(uint16_t trans);
 
@@ -27,42 +36,20 @@ uint8_t segMap(uint8_t digit, bool dp);
 
 void displayNum(uint16_t num);
 
-ISR(TIMER0_COMPA_vect){//timer0 interrupt every ~10ms
-    time++;
-    if(time > 10500) {
-        time = 0;
-    }
-    displayNum(time);
-
-    digitalWrite(13, !digitalRead(13));
-}
-
 void setup() {
     pinMode(SER, OUTPUT);
     pinMode(Sclk, OUTPUT);
     pinMode(Rclk, OUTPUT);
 
-    pinMode(13, OUTPUT);
+    //pinMode(13, OUTPUT);
 
     //dispData[0] = (segMap(1,0) << 8) | dig1form;
     //dispData[1] = (segMap(2,0) << 8) | dig2form;
     //dispData[2] = (segMap(3,0) << 8) | dig3form;
     //dispData[3] = (segMap(4,0) << 8) | dig4form;
 
-    //displayNum(1234);
-
-    cli();
-    TCCR0A = 0;// set entire TCCR0A register to 0
-    TCCR0B = 0;// same for TCCR0B
-    TCNT0  = 0;//initialize counter value to 0
-    OCR0A = 156;
-    // turn on CTC mode
-    TCCR0A |= (1 << WGM01);
-    // Set CS01 and CS00 bits for 1024 prescaler
-    TCCR0B |= (1 << CS02) | (1 << CS00);   
-    // enable timer compare interrupt
-    TIMSK0 |= (1 << OCIE0A);
-    sei();
+    displayNum(1234);
+    
 }
 
 void loop() {
@@ -70,6 +57,11 @@ void loop() {
     writeToReg(dispData[1]);
     writeToReg(dispData[2]);
     writeToReg(dispData[3]);
+    timeC++;
+    displayNum(timeC);
+    if(timeC > 12000) {
+        timeC = 0;
+    }
 }
 
 void writeToReg(uint16_t trans) {

@@ -5,8 +5,6 @@
 #include <esp8266/Arduino.h>
 #endif
 #include <ESP8266WiFi.h> //for Wifi connectivity
-#include <ESP8266WebServer.h> //for hosting the API
-#include <ESP8266mDNS.h> //for giving a friendly hostname
 #include <WiFiManager.h> //for WiFi user interface
 #include <ESP_Mail_Client.h> //for sending SMS
 #include <ESP8266HTTPClient.h> //for doing capitve portal login
@@ -99,7 +97,7 @@ bool captiveLogin();
 void sendSMS(String phonenumber, String messageText);
 
 //callback for hardware timer to initiate temperature conversion every second
-void ICACHE_RAM_ATTR eachSecond();
+void IRAM_ATTR eachSecond();
 
 //sends display data to display
 void refreshDisplay();
@@ -440,7 +438,7 @@ void startTempConversion() {
     tempProbe.write(0x44); //start conversion
 }
 
-void ICACHE_RAM_ATTR eachSecond() {
+void IRAM_ATTR eachSecond() {
     if (state == PROBE_RECOVERY_WAIT) {
         state = SEARCH_FOR_PROBE;
     } else {
